@@ -2,11 +2,21 @@
 
 **A CLI tool that aggregates and colorizes logs from multiple services (docker compose, k8s) in real-time, for developers debugging microservices.**
 
-<!-- THE PROBLEM: 2-3 concrete lines on the annoying thing this removes. -->
+Switching between `kubectl logs` and `docker compose logs` is tedious. Missing context when incidents span services. Hard to correlate events across containers.
 
 ## Example
 
-<!-- A real command and its REAL pasted output. Run it first. -->
+```bash
+$ python -m loglens --help
+usage: loglens [-h] [--services SERVICE] [--limit N]
+
+Aggregate and colorize logs from multiple services.
+
+options:
+  -h, --help          show this help message and exit
+  --services SERVICE  Service to include (repeatable).
+  --limit N           Maximum number of log lines to show.
+```
 
 ## Install
 
@@ -16,15 +26,25 @@ pip install -e ".[dev]"
 
 ## Usage
 
-<!-- The 2-4 commands people actually need, one line each. -->
+- Aggregate logs from all services: `python -m loglens`
+- Filter to specific services: `python -m loglens --services web --services db`
+- Limit the number of lines: `python -m loglens --limit 500`
 
 ## How it works
 
-<!-- 3-6 bullets: what it checks, computes or produces. -->
+- Tails log files from docker compose services via `docker compose logs -f`
+- Tails logs from Kubernetes pods via `kubectl logs -f`
+- Adds timestamps to each log line
+- Colorizes output by service for easy visual parsing
+- Merges logs from multiple sources in real-time
+- Gracefully handles container restarts and pod rescheduling
 
 ## Limitations
 
-<!-- Honest and short: what it does NOT do, known gaps. -->
+- Does not persist logs; only shows live streams
+- Requires `kubectl` to be configured and accessible in PATH for Kubernetes logs
+- Does not support multi-line log parsing (e.g., stack traces)
+- Tested primarily with Linux and macOS
 
 ## Development
 
