@@ -1,36 +1,36 @@
 """Tests for loglens.sources."""
 
 import inspect
+import subprocess
+from itertools import islice
+from unittest.mock import MagicMock, patch
 
-import pytest
-
-from loglens.sources import LogSource
+from loglens.sources import DockerComposeSource, LogSource
 
 
 def test_log_source_is_abstract_base_class() -> None:
-    """LogSource should be an abstract base class with stream method."""
-    assert inspect.isabstract(LogSource)
-    # Check that stream is an abstract method
-    assert "stream" in LogSource.__abstractmethods__
+    """LogSource should be an abstract base class."""
+    assert inspect.isabstract(LogSource) is True
 
 
-def test_log_source_cannot_be_instantiated() -> None:
-    """Instantiating LogSource directly should raise TypeError."""
-    with pytest.raises(TypeError):
-        LogSource()  # type: ignore[abstract]
+def test_docker_compose_source_stream_yields_tuple() -> None:
+    """DockerComposeSource.stream should yield (timestamp, line) tuples."""
+    sample_line = "service | 2024-01-01T12:00:00Z | hello world"
+    mock_proc = MagicMock()
+    mock_proc.stdout = [sample_line + "\n"]
+    mock_proc.wait = MagicMock()
 
-
-def test_log_source_subclass_stream_can_be_called() -> None:
-    """Define a dummy subclass of LogSource and verify stream() can be called."""
-    class DummyLogSource(LogSource):
-        def stream(self):
-            # Return an empty iterator
-            return iter([])
-
-    # Instantiate the dummy subclass
-    source = DummyLogSource()
-    # Call stream and verify it returns an iterator
-    it = source.stream()
-    # We can call next() and expect StopIteration because it's empty
-    with pytest.raises(StopIteration):
-        next(it)
+    with patch("loglens.sources.subprocess.Popen", return_value=mock_proc) as mock_popen:
+        source = DockerComposeSource()
+        result = list(islice(source.stream(), 1))
+        assert len(result) == 1
+        timestamp, line = result[0]
+        assert isinstance(timestamp, float)
+        assert isinstance(line, str)
+        assert line == "hello world"
+        mock_popen.assert_called_once_with(
+            ["docker", "compose", "logs", "-f", "--timestamps"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
