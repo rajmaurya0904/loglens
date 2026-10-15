@@ -18,3 +18,19 @@ def test_log_source_cannot_be_instantiated() -> None:
     """Instantiating LogSource directly should raise TypeError."""
     with pytest.raises(TypeError):
         LogSource()  # type: ignore[abstract]
+
+
+def test_log_source_subclass_stream_can_be_called() -> None:
+    """Define a dummy subclass of LogSource and verify stream() can be called."""
+    class DummyLogSource(LogSource):
+        def stream(self):
+            # Return an empty iterator
+            return iter([])
+
+    # Instantiate the dummy subclass
+    source = DummyLogSource()
+    # Call stream and verify it returns an iterator
+    it = source.stream()
+    # We can call next() and expect StopIteration because it's empty
+    with pytest.raises(StopIteration):
+        next(it)
