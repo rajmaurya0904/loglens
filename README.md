@@ -49,7 +49,8 @@ pip install -e ".[dev]"
 - Does not persist logs; only shows live streams
 - Requires `kubectl` to be configured and accessible in PATH for Kubernetes logs
 - Does not support multi-line log parsing (e.g., stack traces)
-- Tested primarily with Linux and macOS
+- Lacks Windows support
+- Relies on external commands (`docker`, `kubectl`)
 
 ## Development
 
