@@ -6,6 +6,10 @@ from collections.abc import Iterator
 from datetime import datetime
 
 
+class LogLensError(Exception):
+    """Custom exception for loglens errors."""
+
+
 class LogSource(ABC):
     """Abstract base class for log sources."""
     @abstractmethod
@@ -17,12 +21,15 @@ class DockerComposeSource(LogSource):
     """Stream logs from `docker compose logs -f --timestamps`."""
 
     def stream(self) -> Iterator[tuple[float, str]]:
-        proc = subprocess.Popen(
-            ["docker", "compose", "logs", "-f", "--timestamps"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
+        try:
+            proc = subprocess.Popen(
+                ["docker", "compose", "logs", "-f", "--timestamps"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except FileNotFoundError as e:
+            raise LogLensError("docker compose command not found") from e
         try:
             for line in proc.stdout:
                 line = line.rstrip("\n")
@@ -56,12 +63,15 @@ class KubernetesSource(LogSource):
             cmd.extend(["-n", self.namespace])
         cmd.append(self.pod_name)
 
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except FileNotFoundError as e:
+            raise LogLensError("kubectl command not found") from e
         try:
             for line in proc.stdout:
                 line = line.rstrip("\n")
