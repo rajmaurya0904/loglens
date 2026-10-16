@@ -38,12 +38,11 @@ pip install -e ".[dev]"
 
 ## How it works
 
-- Tails log files from docker compose services via `docker compose logs -f`
-- Tails logs from Kubernetes pods via `kubectl logs -f`
-- Adds timestamps to each log line
-- Colorizes output by service for easy visual parsing
-- Merges logs from multiple sources in real-time
-- Gracefully handles container restarts and pod rescheduling
+- **Source abstraction:** `loglens` defines a common `LogSource` interface that wraps both Docker Compose (`docker compose logs -f`) and Kubernetes (`kubectl logs -f`) back‑ends, exposing a unified iterator of log lines.
+- **Merging:** Log lines from all active sources are merged in chronological order using a priority queue, so events from different services appear interleaved correctly as they happen.
+- **Timestamping:** Each line is prefixed with a UTC timestamp generated at receipt, ensuring a consistent ordering across sources.
+- **Colorization:** A deterministic colour is assigned per service name; the formatter injects ANSI colour codes so each service’s output is visually distinct.
+- **Resilience:** The merger watches for source termination (e.g., container restart or pod reschedule) and automatically re‑attaches, keeping the stream continuous.
 
 ## Limitations
 
