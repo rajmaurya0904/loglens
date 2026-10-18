@@ -1,0 +1,3 @@
+2024-05-14 09:15:00 UTC db ready
+{"time":"2024-05-14T09:15:03.900Z","level":"info","msg":"checkpoint complete"}
+2024-05-14T09:15:04.500Z WARN connection pool 18/20 in use
