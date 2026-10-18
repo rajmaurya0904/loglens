@@ -2,6 +2,7 @@
 name = "loglens"
 version = "0.1.0"
 description = "A CLI tool that aggregates and colorizes logs from multiple services (docker compose, k8s) in real-time, for developers debugging microservices."
+readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = []
