@@ -147,3 +147,26 @@ def format_timestamp(epoch: float, *, precision: int = 3) -> str:
 def isoformat(epoch: float) -> str:
     """Format epoch seconds as an RFC 3339 UTC timestamp with microseconds."""
     return datetime.fromtimestamp(epoch, tz=UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+_DURATION_RE = re.compile(r"(\d+(?:\.\d+)?)\s*([smhdw])", re.IGNORECASE)
+_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+
+
+def parse_since(text: str, now: float) -> float:
+    """Turn a ``--since`` value into an absolute epoch time.
+
+    Accepts a relative duration (``30s``, ``10m``, ``2h``, ``1d``, ``1h30m``) counted back from
+    ``now``, or anything :func:`parse_timestamp` understands. Raises ``ValueError`` otherwise.
+    """
+    stripped = text.strip()
+    pieces = _DURATION_RE.findall(stripped)
+    if pieces and _DURATION_RE.sub("", stripped).strip() == "":
+        seconds = sum(float(amount) * _UNITS[unit.lower()] for amount, unit in pieces)
+        return now - seconds
+    try:
+        return parse_timestamp(stripped)
+    except ValueError:
+        raise ValueError(
+            f"invalid time {text!r}: use a duration like 10m or 2h, or an ISO timestamp"
+        ) from None
