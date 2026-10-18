@@ -1,0 +1,9 @@
+2024-05-14T09:15:02.104Z INFO listening on :8080
+2024-05-14T09:15:03.870Z INFO GET /orders/42 200 12ms
+2024-05-14T09:15:04.215Z WARN slow upstream: payments took 1480ms
+2024-05-14T09:15:04.912Z ERROR POST /orders 502 upstream payments: connection reset
+Traceback (most recent call last):
+  File "api/handlers.py", line 88, in create_order
+    charge = payments.charge(order)
+ConnectionResetError: [Errno 104] Connection reset by peer
+2024-05-14T09:15:06.003Z INFO GET /health 200 1ms
