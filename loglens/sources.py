@@ -9,6 +9,7 @@ them by time.
 from __future__ import annotations
 
 import collections
+import re
 import shutil
 import subprocess
 import sys
@@ -19,7 +20,7 @@ from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import IO, NamedTuple
 
-from loglens.timestamps import extract_timestamp
+from loglens.timestamps import extract_timestamp, isoformat
 
 
 class LogLensError(Exception):
@@ -251,6 +252,138 @@ class CommandSource(_ProcessSource):
 
     def command(self, since: float | None = None) -> list[str]:
         return list(self.argv)
+
+
+_COMPOSE_PREFIX = re.compile(r"^(?P<name>[^\s|]+)\s*\|\s?(?P<text>.*)$")
+_REPLICA_SUFFIX = re.compile(r"[-_]\d+$")
+
+
+class DockerComposeSource(_ProcessSource):
+    """Stream logs from ``docker compose logs --timestamps`` for a whole project.
+
+    ``docker compose logs`` prefixes every line with its container name
+    (``web-1  | <timestamp> <message>``). The replica suffix is stripped so the service is
+    called ``web``. Lines without that prefix (``Attaching to ...``, compose warnings) are
+    dropped.
+    """
+
+    def __init__(
+        self,
+        services: Sequence[str] = (),
+        *,
+        compose_files: Sequence[str] = (),
+        project: str | None = None,
+        follow: bool = True,
+        tail: int | None = None,
+        since: float | None = None,
+        reconnect: bool = False,
+        retry_delay: float = 2.0,
+    ) -> None:
+        super().__init__("compose", since=since, reconnect=reconnect, retry_delay=retry_delay)
+        self.services = list(services)
+        self.compose_files = list(compose_files)
+        self.project = project
+        self.follow = follow
+        self.tail = tail
+
+    def command(self, since: float | None = None) -> list[str]:
+        if shutil.which("docker") is None and shutil.which("docker-compose"):
+            argv = ["docker-compose"]
+        else:
+            argv = ["docker", "compose"]
+        for path in self.compose_files:
+            argv += ["-f", path]
+        if self.project:
+            argv += ["-p", self.project]
+        argv += ["logs", "--timestamps", "--no-color"]
+        if self.follow:
+            argv.append("-f")
+        if self.tail is not None:
+            argv += ["--tail", str(self.tail)]
+        if since is not None:
+            argv += ["--since", isoformat(since)]
+        return argv + self.services
+
+    def _split(self, line: str) -> tuple[str, str] | None:
+        match = _COMPOSE_PREFIX.match(line)
+        if match is None:
+            return None
+        return _REPLICA_SUFFIX.sub("", match.group("name")), match.group("text")
+
+    def _missing(self, exe: str) -> LogLensError:
+        return LogLensError(
+            f"docker compose command not found: `{exe}` is not on PATH; install Docker Compose"
+        )
+
+
+_KUBE_PREFIX = re.compile(r"^\[(?:pod/)?(?P<pod>[^/\]]+)(?:/[^\]]+)?\]\s?(?P<text>.*)$")
+
+
+class KubernetesSource(_ProcessSource):
+    """Stream logs from ``kubectl logs --timestamps`` for one pod or a label selector.
+
+    With a ``selector`` kubectl is run with ``--prefix`` and the pod name is parsed off the
+    front of every line, so a single source can cover a whole deployment.
+    """
+
+    def __init__(
+        self,
+        pod_name: str | None = None,
+        namespace: str | None = None,
+        *,
+        selector: str | None = None,
+        container: str | None = None,
+        context: str | None = None,
+        follow: bool = True,
+        tail: int | None = None,
+        since: float | None = None,
+        reconnect: bool = False,
+        retry_delay: float = 2.0,
+    ) -> None:
+        if not pod_name and not selector:
+            raise LogLensError("a Kubernetes source needs a pod name or a label selector")
+        label = pod_name or selector or ""
+        super().__init__(label, since=since, reconnect=reconnect, retry_delay=retry_delay)
+        self.pod_name = pod_name
+        self.namespace = namespace
+        self.selector = selector
+        self.container = container
+        self.context = context
+        self.follow = follow
+        self.tail = tail
+
+    def command(self, since: float | None = None) -> list[str]:
+        argv = ["kubectl"]
+        if self.context:
+            argv += ["--context", self.context]
+        argv.append("logs")
+        if self.follow:
+            argv.append("-f")
+        argv.append("--timestamps")
+        if self.namespace:
+            argv += ["-n", self.namespace]
+        if self.container:
+            argv += ["-c", self.container]
+        if self.tail is not None:
+            argv += ["--tail", str(self.tail)]
+        if since is not None:
+            argv += ["--since-time", isoformat(since)]
+        if self.selector:
+            argv += ["-l", self.selector, "--prefix"]
+        elif self.pod_name:
+            argv.append(self.pod_name)
+        return argv
+
+    def _split(self, line: str) -> tuple[str, str] | None:
+        if not self.selector:
+            return self.name, line
+        match = _KUBE_PREFIX.match(line)
+        if match is None:
+            return None
+        return match.group("pod"), match.group("text")
+
+    def _missing(self, exe: str) -> LogLensError:
+        return LogLensError(f"kubectl command not found: `{exe}` is not on PATH; install kubectl")
 
 
 class FileSource(_LineSource):
