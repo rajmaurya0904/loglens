@@ -378,6 +378,8 @@ def main(
     out = stdout if stdout is not None else sys.stdout
     if stdout is None and hasattr(out, "reconfigure"):
         out.reconfigure(encoding="utf-8", errors="replace")
+    if stdin is None and hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8", errors="replace")
     try:
         return run(args, out, stdin)
     except LogLensError as exc:
