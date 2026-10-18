@@ -116,3 +116,9 @@ def test_parse_since_absolute_values() -> None:
 def test_parse_since_rejects_garbage(bad: str) -> None:
     with pytest.raises(ValueError, match="invalid time"):
         parse_since(bad, BASE)
+
+
+def test_utc_and_gmt_suffixes_are_consumed() -> None:
+    assert split_timestamp("2024-01-01 12:00:00 UTC db ready") == (BASE, "db ready")
+    assert split_timestamp("2024-01-01T12:00:00GMT x") == (BASE, "x")
+    assert parse_timestamp("2024-01-01 12:00:00 UTC") == BASE
