@@ -16,7 +16,8 @@ class Formatter:
     """Format entries as ``service | HH:MM:SS.mmm message``, or as JSON lines.
 
     The service column grows to fit the longest name seen so far, so columns line up without
-    needing to know the service list in advance. With ``color`` on, the prefix takes the
+    needing to know the service list in advance; pass ``width`` to start wide enough when the
+    names are known up front. With ``color`` on, the prefix takes the
     service's colour and error and warning lines are painted red and yellow; with it off,
     any ANSI codes already in the messages are stripped so the output is safe to pipe.
     """
@@ -28,12 +29,13 @@ class Formatter:
         show_time: bool = True,
         precision: int = 3,
         json_lines: bool = False,
+        width: int = 0,
     ) -> None:
         self.color = color
         self.show_time = show_time
         self.precision = precision
         self.json_lines = json_lines
-        self._width = 0
+        self._width = width
 
     def format(self, entry: Entry) -> str:
         if self.json_lines:
