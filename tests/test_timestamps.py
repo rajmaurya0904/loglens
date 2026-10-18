@@ -7,6 +7,7 @@ from loglens.timestamps import (
     format_timestamp,
     isoformat,
     json_timestamp,
+    parse_since,
     parse_timestamp,
     split_timestamp,
 )
@@ -95,3 +96,23 @@ def test_format_helpers() -> None:
     assert format_timestamp(BASE + 0.1234) == "12:00:00.123"
     assert format_timestamp(BASE, precision=0) == "12:00:00"
     assert isoformat(BASE) == "2024-01-01T12:00:00.000000Z"
+
+
+def test_parse_since_relative_durations() -> None:
+    assert parse_since("30s", BASE) == BASE - 30
+    assert parse_since("10m", BASE) == BASE - 600
+    assert parse_since("2h", BASE) == BASE - 7200
+    assert parse_since("1h30m", BASE) == BASE - 5400
+    assert parse_since("1d", BASE) == BASE - 86400
+    assert parse_since("0.5m", BASE) == BASE - 30
+
+
+def test_parse_since_absolute_values() -> None:
+    assert parse_since("2024-01-01T11:00:00Z", BASE) == BASE - 3600
+    assert parse_since("1704110000", BASE) == 1704110000
+
+
+@pytest.mark.parametrize("bad", ["", "soon", "10x", "m10", "5 minutes ago"])
+def test_parse_since_rejects_garbage(bad: str) -> None:
+    with pytest.raises(ValueError, match="invalid time"):
+        parse_since(bad, BASE)
