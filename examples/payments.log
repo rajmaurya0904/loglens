@@ -1,0 +1,4 @@
+2024-05-14T09:15:01.950Z INFO payments worker ready
+2024-05-14T09:15:03.980Z INFO charge order=42 amount=1999 USD
+2024-05-14T09:15:04.760Z ERROR stripe: read timeout after 3000ms, closing socket
+2024-05-14T09:15:05.100Z WARN retry queue depth=7
