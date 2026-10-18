@@ -19,7 +19,7 @@ _ISO_RE = re.compile(
     r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})"
     r"[T ](?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})"
     r"(?:[.,](?P<frac>\d+))?"
-    r"(?P<tz>Z|z|[+-]\d{2}:?\d{2})?"
+    r"(?P<tz>Z|z|\s?UTC|\s?GMT|[+-]\d{2}:?\d{2})?"
 )
 
 # A leading timestamp, optionally wrapped in [] or (), followed by whitespace or a separator.
@@ -36,7 +36,7 @@ def _build(match: re.Match[str], prefix: str = "") -> float:
     frac = g[f"{prefix}frac"] or ""
     micro = int((frac + "000000")[:6]) if frac else 0
     tz_text = g[f"{prefix}tz"]
-    if tz_text and tz_text not in ("Z", "z"):
+    if tz_text and tz_text.strip().upper() not in ("Z", "UTC", "GMT"):
         sign = 1 if tz_text[0] == "+" else -1
         digits = tz_text[1:].replace(":", "")
         offset = timedelta(hours=int(digits[:2]), minutes=int(digits[2:4]))
