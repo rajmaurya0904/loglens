@@ -9,11 +9,13 @@ them by time.
 from __future__ import annotations
 
 import collections
+import shutil
+import subprocess
 import sys
 import threading
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import IO, NamedTuple
 
@@ -79,6 +81,176 @@ class _LineSource(LogSource):
     def stream(self) -> Iterator[Entry]:
         for service, line in self._raw():
             yield self._stamp(service, line)
+
+
+class _ProcessSource(_LineSource):
+    """A source backed by an external command that prints log lines on stdout."""
+
+    #: Consecutive failed runs (non-zero exit, no output) tolerated while reconnecting.
+    MAX_FAILURES = 5
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        since: float | None = None,
+        reconnect: bool = False,
+        retry_delay: float = 2.0,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
+        super().__init__(name, clock)
+        self.since = since
+        self.reconnect = reconnect
+        self.retry_delay = retry_delay
+        self._stop = threading.Event()
+        self._proc: subprocess.Popen[str] | None = None
+        self._status: int | None = None
+        self._stderr_tail: collections.deque[str] = collections.deque(maxlen=10)
+
+    # -- hooks ----------------------------------------------------------------------------
+
+    @abstractmethod
+    def command(self, since: float | None = None) -> list[str]:
+        """Return the argv to run. ``since`` is the resume point after a reconnect."""
+
+    def _split(self, line: str) -> tuple[str, str] | None:
+        """Map one stdout line to ``(service, text)``; ``None`` drops the line."""
+        return self.name, line
+
+    def _missing(self, exe: str) -> LogLensError:
+        return LogLensError(f"`{exe}` was not found on PATH; install it or fix PATH")
+
+    # -- machinery ------------------------------------------------------------------------
+
+    def _resolve(self, argv: list[str]) -> list[str]:
+        exe = shutil.which(argv[0])
+        if exe is None:
+            raise self._missing(argv[0])
+        return [exe, *argv[1:]]
+
+    def check(self) -> None:
+        self._resolve(self.command())
+
+    def close(self) -> None:
+        self._stop.set()
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
+
+    def _raw(self) -> Iterator[tuple[str, str]]:  # pragma: no cover - stream() is overridden
+        raise NotImplementedError
+
+    def _drain_stderr(self, proc: subprocess.Popen[str]) -> None:
+        assert proc.stderr is not None
+        try:
+            for line in proc.stderr:
+                self._stderr_tail.append(line.rstrip())
+        except (OSError, ValueError):
+            pass
+
+    def _run_once(self, since: float | None) -> Iterator[Entry]:
+        argv = self._resolve(self.command(since))
+        self._stderr_tail.clear()
+        try:
+            proc = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except FileNotFoundError as exc:
+            raise self._missing(argv[0]) from exc
+        except OSError as exc:
+            raise LogLensError(f"could not start `{argv[0]}`: {exc}") from exc
+        self._proc = proc
+        drain = threading.Thread(target=self._drain_stderr, args=(proc,), daemon=True)
+        drain.start()
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                split = self._split(line.rstrip("\r\n"))
+                if split is not None:
+                    yield self._stamp(*split)
+        finally:
+            if proc.poll() is None and self._stop.is_set():
+                proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            drain.join(timeout=1)
+            self._status = proc.returncode
+
+    def _failure(self) -> LogLensError:
+        detail = "; ".join(line for line in self._stderr_tail if line)
+        suffix = f": {detail}" if detail else ""
+        return LogLensError(f"`{self.command()[0]}` exited with status {self._status}{suffix}")
+
+    def stream(self) -> Iterator[Entry]:
+        last_ts: float | None = None
+        seen_at_last: set[tuple[str, str]] = set()
+        replaying = False
+        failures = 0
+        while True:
+            produced = False
+            resume = last_ts if last_ts is not None else self.since
+            for entry in self._run_once(resume):
+                if replaying and last_ts is not None:
+                    if entry.timestamp < last_ts:
+                        continue
+                    key = (entry.service, entry.message)
+                    if entry.timestamp == last_ts and key in seen_at_last:
+                        continue
+                    replaying = False
+                produced = True
+                if last_ts is None or entry.timestamp > last_ts:
+                    last_ts = entry.timestamp
+                    seen_at_last = set()
+                seen_at_last.add((entry.service, entry.message))
+                yield entry
+            if self._stop.is_set():
+                return
+            if not self.reconnect:
+                if self._status not in (0, None):
+                    raise self._failure()
+                return
+            failures = 0 if (produced or self._status == 0) else failures + 1
+            if failures >= self.MAX_FAILURES:
+                raise self._failure()
+            if self._stop.wait(self.retry_delay):
+                return
+            replaying = True
+
+
+class CommandSource(_ProcessSource):
+    """Run any command and treat each stdout line as a log line.
+
+    Handy for ``ssh host journalctl -f -o short-iso``, ``heroku logs -t`` or
+    ``docker logs -f --timestamps api``.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        argv: Sequence[str],
+        *,
+        reconnect: bool = False,
+        retry_delay: float = 2.0,
+    ) -> None:
+        if not argv:
+            raise LogLensError(f"empty command for source {name!r}")
+        super().__init__(name, reconnect=reconnect, retry_delay=retry_delay)
+        self.argv = list(argv)
+
+    def command(self, since: float | None = None) -> list[str]:
+        return list(self.argv)
 
 
 class FileSource(_LineSource):
